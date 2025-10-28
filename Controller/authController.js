@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import User from "../Model/User.js";
 import PendingUser from "../Model/PendingUser.js";
-import { sendOtpEmail } from "../Utils/mailer.js";
+import { sendOtpEmail, sendPasswordResetEmail } from "../Utils/mailer.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "please-change-this";
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -267,4 +267,94 @@ export async function me(req, res) {
       isAdmin: u.isAdmin,
     },
   });
+}
+
+export async function forgotPassword(req, res) {
+  const { email } = req.body || {};
+  if (!email) return res.status(400).json({ error: "Email required" });
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res
+      .status(404)
+      .json({ error: "Email does not exist in our database" });
+  }
+
+  // Generate reset token (6 digit code)
+  const resetToken = generateOtp();
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+  user.passwordResetToken = {
+    token: resetToken,
+    expiresAt,
+  };
+  await user.save();
+
+  // Build reset URL with token and email
+  const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+  const resetUrl = `${frontendUrl}/reset-password?email=${encodeURIComponent(
+    email
+  )}&token=${resetToken}`;
+
+  // Send email with reset link
+  const sendEmails =
+    String(process.env.SEND_EMAILS || "false").toLowerCase() === "true";
+
+  if (sendEmails) {
+    try {
+      await sendPasswordResetEmail(email, user.name, resetToken, resetUrl);
+      console.log(`Password reset email sent to ${email}`);
+    } catch (err) {
+      console.error("Failed to send password reset email", err);
+      return res.status(500).json({ error: "Failed to send reset email" });
+    }
+  }
+
+  const resp = { ok: true, message: "Password reset link sent to your email" };
+
+  // For development: return token and URL in response
+  if (
+    !sendEmails &&
+    String(process.env.NODE_ENV || "development") !== "production"
+  ) {
+    resp.devResetToken = resetToken;
+    resp.devResetUrl = resetUrl;
+  }
+
+  res.json(resp);
+}
+
+export async function resetPassword(req, res) {
+  const { email, token, newPassword } = req.body || {};
+
+  if (!email || !token || !newPassword) {
+    return res
+      .status(400)
+      .json({ error: "Email, token, and new password required" });
+  }
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  if (!user.passwordResetToken || !user.passwordResetToken.token) {
+    return res.status(400).json({ error: "No reset token requested" });
+  }
+
+  if (user.passwordResetToken.expiresAt < new Date()) {
+    return res.status(400).json({ error: "Reset token expired" });
+  }
+
+  if (user.passwordResetToken.token !== token) {
+    return res.status(400).json({ error: "Invalid reset token" });
+  }
+
+  // Update password
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  user.passwordHash = passwordHash;
+  user.passwordResetToken = undefined;
+  await user.save();
+
+  res.json({ ok: true, message: "Password reset successfully" });
 }

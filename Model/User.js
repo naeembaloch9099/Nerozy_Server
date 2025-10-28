@@ -5,6 +5,11 @@ const otpSchema = new mongoose.Schema({
   expiresAt: Date,
 });
 
+const passwordResetSchema = new mongoose.Schema({
+  token: String,
+  expiresAt: Date,
+});
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String },
@@ -13,6 +18,7 @@ const userSchema = new mongoose.Schema(
     isAdmin: { type: Boolean, default: false },
     isVerified: { type: Boolean, default: false },
     otp: otpSchema,
+    passwordResetToken: passwordResetSchema,
   },
   { timestamps: true }
 );
