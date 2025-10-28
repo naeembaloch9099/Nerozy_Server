@@ -1,0 +1,24 @@
+{
+  "name": "nerozy-server",
+  "version": "1.0.0",
+  "description": "Backend server with Nodemailer",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "nodemon index.js",
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.2",
+    "nodemailer": "^6.10.1",
+    "stripe": "^19.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
