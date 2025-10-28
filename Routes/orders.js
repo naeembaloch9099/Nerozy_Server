@@ -89,6 +89,53 @@ router.post("/", async (req, res) => {
     );
 
     const { items, shippingAddress, paymentInfo } = req.body || {};
+
+    // Validate and check stock availability for each item
+    const stockErrors = [];
+    const productUpdates = [];
+
+    for (const item of items || []) {
+      // Skip stock validation if product ID is null (guest checkout with name only)
+      if (!item.product) {
+        console.log(
+          `Skipping stock validation for item without product ID: ${item.name}`
+        );
+        continue;
+      }
+
+      const Product = (await import("../Model/Product.js")).default;
+      const product = await Product.findById(item.product);
+
+      if (!product) {
+        console.log(`Product ${item.product} not found in database`);
+        // Don't fail the order, just skip stock update
+        continue;
+      }
+
+      if (product.qty < item.quantity) {
+        stockErrors.push(
+          `${product.name} - Only ${product.qty} available, requested ${item.quantity}`
+        );
+        continue;
+      }
+
+      // Store product update for later
+      productUpdates.push({
+        productId: product._id,
+        quantityToDeduct: item.quantity,
+        productName: product.name,
+      });
+    }
+
+    // If any stock errors, return them
+    if (stockErrors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "Insufficient stock",
+        details: stockErrors,
+      });
+    }
+
     const total = (items || []).reduce(
       (s, it) => s + (it.price || 0) * (it.quantity || 1),
       0
@@ -114,6 +161,27 @@ router.post("/", async (req, res) => {
 
     const savedOrder = await order.save();
     console.log("Order saved successfully:", savedOrder._id);
+
+    // Now deduct stock from products (after successful order creation)
+    const Product = (await import("../Model/Product.js")).default;
+    for (const update of productUpdates) {
+      try {
+        await Product.findByIdAndUpdate(
+          update.productId,
+          { $inc: { qty: -update.quantityToDeduct } },
+          { new: true }
+        );
+        console.log(
+          `Stock updated for ${update.productName}: -${update.quantityToDeduct}`
+        );
+      } catch (stockError) {
+        console.error(
+          `Failed to update stock for ${update.productName}:`,
+          stockError
+        );
+        // Log but don't fail the order - stock will need manual adjustment
+      }
+    }
 
     // Send order confirmation email if email is provided
     const customerEmail = shippingAddress?.email;
@@ -176,6 +244,129 @@ router.get("/my", requireAuth, async (req, res) => {
     "items.product"
   );
   res.json(orders);
+});
+
+// Admin: get analytics data
+router.get("/analytics/stats", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { period = "30days" } = req.query;
+
+    // Calculate date range based on period
+    const now = new Date();
+    let startDate;
+
+    switch (period) {
+      case "7days":
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case "30days":
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case "90days":
+        startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        break;
+      case "12months":
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        break;
+      case "all":
+        startDate = new Date(0);
+        break;
+      default:
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+
+    // Get all orders in the period
+    const orders = await Order.find({
+      createdAt: { $gte: startDate },
+    }).populate("items.product");
+
+    // Calculate total revenue
+    const totalRevenue = orders.reduce(
+      (sum, order) => sum + (order.total || 0),
+      0
+    );
+
+    // Calculate average order value
+    const avgOrderValue = orders.length > 0 ? totalRevenue / orders.length : 0;
+
+    // Count orders by status
+    const statusCounts = orders.reduce((acc, order) => {
+      const status = order.status || "pending";
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Category distribution
+    const categoryData = {};
+    orders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        if (item.product && item.product.category) {
+          const cat = item.product.category;
+          categoryData[cat] = (categoryData[cat] || 0) + item.quantity;
+        }
+      });
+    });
+
+    // Daily/Weekly sales data for charts
+    const salesByDate = {};
+    orders.forEach((order) => {
+      const date = new Date(order.createdAt).toISOString().split("T")[0];
+      if (!salesByDate[date]) {
+        salesByDate[date] = { revenue: 0, orders: 0 };
+      }
+      salesByDate[date].revenue += order.total || 0;
+      salesByDate[date].orders += 1;
+    });
+
+    // Top selling products
+    const productSales = {};
+    orders.forEach((order) => {
+      (order.items || []).forEach((item) => {
+        if (item.product) {
+          const productId = item.product._id || item.product.id;
+          const productName =
+            item.product.title || item.product.name || "Unknown";
+
+          if (!productSales[productId]) {
+            productSales[productId] = {
+              name: productName,
+              quantity: 0,
+              revenue: 0,
+            };
+          }
+          productSales[productId].quantity += item.quantity || 0;
+          productSales[productId].revenue +=
+            (item.price || 0) * (item.quantity || 0);
+        }
+      });
+    });
+
+    const topProducts = Object.values(productSales)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
+
+    res.json({
+      success: true,
+      period,
+      startDate,
+      endDate: now,
+      analytics: {
+        totalOrders: orders.length,
+        totalRevenue,
+        avgOrderValue,
+        statusCounts,
+        categoryData,
+        salesByDate,
+        topProducts,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to get analytics:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
 });
 
 // Admin: list all orders

@@ -47,6 +47,17 @@ router.post("/create-checkout-session", async (req, res) => {
       metadata: {
         shippingAddress: JSON.stringify(shippingAddress),
         userId: req.user?._id?.toString() || "guest",
+        // Store items with product IDs in metadata (Stripe has 500 char limit per field)
+        items: JSON.stringify(
+          items.map((item) => ({
+            product: item.product || item.id || null,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            size: item.size,
+            color: item.color,
+          }))
+        ),
       },
       // Removed shipping_address_collection - we already collected this on our checkout page
       // The address will be stored in metadata and used to create the order
@@ -117,6 +128,33 @@ router.post("/webhook", async (req, res) => {
         const userId =
           session.metadata.userId !== "guest" ? session.metadata.userId : null;
 
+        // Get items from metadata (includes product IDs)
+        let orderItems = [];
+        try {
+          const itemsFromMetadata = JSON.parse(session.metadata.items || "[]");
+          if (itemsFromMetadata && itemsFromMetadata.length > 0) {
+            orderItems = itemsFromMetadata;
+            console.log("Using items from metadata with product IDs");
+          }
+        } catch (e) {
+          console.warn("Failed to parse items from metadata:", e);
+        }
+
+        // Fallback to line items if metadata items not available
+        if (orderItems.length === 0) {
+          const sessionWithItems = await stripe.checkout.sessions.retrieve(
+            session.id,
+            { expand: ["line_items"] }
+          );
+          orderItems = sessionWithItems.line_items.data.map((item) => ({
+            product: null,
+            price: item.price.unit_amount / 100,
+            quantity: item.quantity,
+            name: item.description || item.price?.product?.name || "Product",
+          }));
+          console.log("Using fallback line items (no product IDs)");
+        }
+
         // Get customer email from session or metadata
         const customerEmail =
           session.customer_details?.email ||
@@ -126,12 +164,7 @@ router.post("/webhook", async (req, res) => {
         const order = new Order({
           user: userId,
           orderNumber: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
-          items: sessionWithItems.line_items.data.map((item) => ({
-            product: null, // We'll need to match this with actual products if needed
-            price: item.price.unit_amount / 100,
-            quantity: item.quantity,
-            name: item.description || item.price?.product?.name || "Product",
-          })),
+          items: orderItems,
           total: session.amount_total / 100,
           status: "confirmed", // Stripe payment confirmed
           shippingAddress: {
@@ -160,6 +193,30 @@ router.post("/webhook", async (req, res) => {
         console.log(
           `✅ Order created from Stripe payment: ${savedOrder.orderNumber} (ID: ${savedOrder._id})`
         );
+
+        // Deduct stock from products
+        const Product = (await import("../Model/Product.js")).default;
+        for (const item of orderItems) {
+          if (item.product) {
+            try {
+              const updatedProduct = await Product.findByIdAndUpdate(
+                item.product,
+                { $inc: { qty: -item.quantity } },
+                { new: true }
+              );
+              if (updatedProduct) {
+                console.log(
+                  `📦 Stock updated for ${updatedProduct.name}: -${item.quantity} (remaining: ${updatedProduct.qty})`
+                );
+              }
+            } catch (stockError) {
+              console.error(
+                `❌ Failed to update stock for product ${item.product}:`,
+                stockError
+              );
+            }
+          }
+        }
 
         // Send order confirmation email
         if (
