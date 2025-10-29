@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import Order from "../Model/Order.js";
 import { requireAuth } from "../Middleware/authMiddleware.js";
 import { sendOrderConfirmationEmail } from "../Utils/orderEmailNotification.js";
+import { deductStock } from "../Utils/inventoryManager.js";
 
 const router = express.Router();
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
@@ -194,28 +195,19 @@ router.post("/webhook", async (req, res) => {
           `✅ Order created from Stripe payment: ${savedOrder.orderNumber} (ID: ${savedOrder._id})`
         );
 
-        // Deduct stock from products
-        const Product = (await import("../Model/Product.js")).default;
-        for (const item of orderItems) {
-          if (item.product) {
-            try {
-              const updatedProduct = await Product.findByIdAndUpdate(
-                item.product,
-                { $inc: { qty: -item.quantity } },
-                { new: true }
-              );
-              if (updatedProduct) {
-                console.log(
-                  `📦 Stock updated for ${updatedProduct.name}: -${item.quantity} (remaining: ${updatedProduct.qty})`
-                );
-              }
-            } catch (stockError) {
-              console.error(
-                `❌ Failed to update stock for product ${item.product}:`,
-                stockError
-              );
-            }
-          }
+        // Deduct stock from products using inventory manager
+        const stockResult = await deductStock(orderItems);
+        if (stockResult.failed.length > 0) {
+          console.warn(
+            "⚠️ Some products failed to update stock:",
+            stockResult.failed
+          );
+        }
+        if (stockResult.updated.some((item) => item.isLowStock)) {
+          console.warn(
+            "⚠️ Low stock warning for:",
+            stockResult.updated.filter((item) => item.isLowStock)
+          );
         }
 
         // Send order confirmation email
@@ -308,15 +300,33 @@ router.post("/test-webhook", async (req, res) => {
       const userId =
         session.metadata.userId !== "guest" ? session.metadata.userId : null;
 
-      const order = new Order({
-        user: userId,
-        orderNumber: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
-        items: session.line_items.data.map((item) => ({
+      // Get items from metadata (includes product IDs)
+      let orderItems = [];
+      try {
+        const itemsFromMetadata = JSON.parse(session.metadata.items || "[]");
+        if (itemsFromMetadata && itemsFromMetadata.length > 0) {
+          orderItems = itemsFromMetadata;
+          console.log("Using items from metadata with product IDs");
+        }
+      } catch (e) {
+        console.warn("Failed to parse items from metadata:", e);
+      }
+
+      // Fallback to line items if metadata items not available
+      if (orderItems.length === 0) {
+        orderItems = session.line_items.data.map((item) => ({
           product: null,
           price: item.price.unit_amount / 100,
           quantity: item.quantity,
-          name: item.description,
-        })),
+          name: item.description || item.price?.product?.name || "Product",
+        }));
+        console.log("Using fallback line items (no product IDs)");
+      }
+
+      const order = new Order({
+        user: userId,
+        orderNumber: `ORD-${Math.floor(100000 + Math.random() * 900000)}`,
+        items: orderItems,
         total: session.amount_total / 100,
         status: "confirmed",
         shippingAddress: {
@@ -341,6 +351,21 @@ router.post("/test-webhook", async (req, res) => {
       console.log(
         `✅ Test order created: ${savedOrder.orderNumber} (ID: ${savedOrder._id})`
       );
+
+      // Deduct stock from products using inventory manager
+      const stockResult = await deductStock(orderItems);
+      if (stockResult.failed.length > 0) {
+        console.warn(
+          "⚠️ Some products failed to update stock:",
+          stockResult.failed
+        );
+      }
+      if (stockResult.updated.some((item) => item.isLowStock)) {
+        console.warn(
+          "⚠️ Low stock warning for:",
+          stockResult.updated.filter((item) => item.isLowStock)
+        );
+      }
 
       // Send confirmation email
       const customerEmail =

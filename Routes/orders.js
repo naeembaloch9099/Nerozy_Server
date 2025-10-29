@@ -5,6 +5,11 @@ import {
   sendOrderConfirmationEmail,
   sendOrderStatusUpdateEmail,
 } from "../Utils/orderEmailNotification.js";
+import {
+  checkStockAvailability,
+  deductStock,
+  restoreStock,
+} from "../Utils/inventoryManager.js";
 
 const router = express.Router();
 
@@ -90,50 +95,21 @@ router.post("/", async (req, res) => {
 
     const { items, shippingAddress, paymentInfo } = req.body || {};
 
-    // Validate and check stock availability for each item
-    const stockErrors = [];
-    const productUpdates = [];
+    // Check stock availability using inventory manager
+    const stockCheck = await checkStockAvailability(items || []);
 
-    for (const item of items || []) {
-      // Skip stock validation if product ID is null (guest checkout with name only)
-      if (!item.product) {
-        console.log(
-          `Skipping stock validation for item without product ID: ${item.name}`
-        );
-        continue;
-      }
-
-      const Product = (await import("../Model/Product.js")).default;
-      const product = await Product.findById(item.product);
-
-      if (!product) {
-        console.log(`Product ${item.product} not found in database`);
-        // Don't fail the order, just skip stock update
-        continue;
-      }
-
-      if (product.qty < item.quantity) {
-        stockErrors.push(
-          `${product.name} - Only ${product.qty} available, requested ${item.quantity}`
-        );
-        continue;
-      }
-
-      // Store product update for later
-      productUpdates.push({
-        productId: product._id,
-        quantityToDeduct: item.quantity,
-        productName: product.name,
-      });
-    }
-
-    // If any stock errors, return them
-    if (stockErrors.length > 0) {
+    if (!stockCheck.success) {
       return res.status(400).json({
         success: false,
         error: "Insufficient stock",
-        details: stockErrors,
+        details: stockCheck.errors,
+        stockInfo: stockCheck.stockInfo,
       });
+    }
+
+    // Log warnings if any
+    if (stockCheck.warnings.length > 0) {
+      console.warn("⚠️ Low stock warnings:", stockCheck.warnings);
     }
 
     const total = (items || []).reduce(
@@ -162,25 +138,19 @@ router.post("/", async (req, res) => {
     const savedOrder = await order.save();
     console.log("Order saved successfully:", savedOrder._id);
 
-    // Now deduct stock from products (after successful order creation)
-    const Product = (await import("../Model/Product.js")).default;
-    for (const update of productUpdates) {
-      try {
-        await Product.findByIdAndUpdate(
-          update.productId,
-          { $inc: { qty: -update.quantityToDeduct } },
-          { new: true }
-        );
-        console.log(
-          `Stock updated for ${update.productName}: -${update.quantityToDeduct}`
-        );
-      } catch (stockError) {
-        console.error(
-          `Failed to update stock for ${update.productName}:`,
-          stockError
-        );
-        // Log but don't fail the order - stock will need manual adjustment
-      }
+    // Deduct stock using inventory manager
+    const stockResult = await deductStock(items || []);
+    if (stockResult.failed.length > 0) {
+      console.warn(
+        "⚠️ Some products failed to update stock:",
+        stockResult.failed
+      );
+    }
+    if (stockResult.updated.some((item) => item.isLowStock)) {
+      console.warn(
+        "⚠️ Low stock after order:",
+        stockResult.updated.filter((item) => item.isLowStock)
+      );
     }
 
     // Send order confirmation email if email is provided
@@ -402,6 +372,25 @@ router.put("/:id/status", requireAuth, requireAdmin, async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
 
     const oldStatus = currentOrder.status;
+
+    // If changing to canceled, restore stock
+    if (
+      status === "canceled" &&
+      oldStatus !== "canceled" &&
+      currentOrder.items
+    ) {
+      console.log(
+        `♻️ Restoring stock for canceled order ${currentOrder.orderNumber}`
+      );
+      const restoreResult = await restoreStock(currentOrder.items);
+      if (restoreResult.success) {
+        console.log(
+          `✅ Stock restored for ${restoreResult.restored.length} products`
+        );
+      } else {
+        console.warn("⚠️ Some products failed to restore:", restoreResult.failed);
+      }
+    }
 
     // Update the order status
     const order = await Order.findByIdAndUpdate(
