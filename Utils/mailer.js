@@ -315,4 +315,6 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   }
 }
 
+// Export transporter (or null if using Resend HTTP API)
+// Note: When using Resend, transporter is null - use the exported functions instead
 export default transporter;
