@@ -176,11 +176,33 @@ export async function sendOtpEmail(
   // Use Resend HTTP API if available
   if (useResend && resendClient) {
     try {
+      // In Resend testing mode, we can only send to the account owner's email
+      // Check if we're in testing mode (using onboarding@resend.dev)
+      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
+      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+      
+      // In testing mode, send to test email but include actual recipient in HTML
+      const actualRecipient = to;
+      const emailRecipient = isResendTestingMode ? testEmail : to;
+      
+      // Add notice to HTML if in testing mode
+      let finalHtml = html;
+      if (isResendTestingMode && emailRecipient !== actualRecipient) {
+        finalHtml = `
+          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
+            <p style="margin:0;color:#856404;font-size:14px;">
+              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
+            </p>
+          </div>
+          ${html}
+        `;
+      }
+
       const { data, error } = await resendClient.emails.send({
         from: `${process.env.FROM_NAME || "Baloch Tradition"} <${resendFromEmail}>`,
-        to: [to],
+        to: [emailRecipient],
         subject: subject,
-        html: html,
+        html: finalHtml,
       });
 
       if (error) {
@@ -188,8 +210,8 @@ export async function sendOtpEmail(
         throw new Error(error.message || "Failed to send email via Resend");
       }
 
-      console.log("Email sent successfully via Resend HTTP API to:", to);
-      return { accepted: [to], messageId: data.id, info: data };
+      console.log(`Email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`);
+      return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (err) {
       console.error(
         "Failed to send email via Resend",
@@ -293,11 +315,32 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   // Use Resend HTTP API if available
   if (useResend && resendClient) {
     try {
+      // In Resend testing mode, we can only send to the account owner's email
+      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
+      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+      
+      // In testing mode, send to test email but include actual recipient in HTML
+      const actualRecipient = to;
+      const emailRecipient = isResendTestingMode ? testEmail : to;
+      
+      // Add notice to HTML if in testing mode
+      let finalHtml = html;
+      if (isResendTestingMode && emailRecipient !== actualRecipient) {
+        finalHtml = `
+          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
+            <p style="margin:0;color:#856404;font-size:14px;">
+              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
+            </p>
+          </div>
+          ${html}
+        `;
+      }
+
       const { data, error } = await resendClient.emails.send({
         from: `${process.env.FROM_NAME || "Baloch Tradition"} <${resendFromEmail}>`,
-        to: [to],
+        to: [emailRecipient],
         subject: "🔐 Reset Your Password - Baloch Tradition",
-        html: html,
+        html: finalHtml,
       });
 
       if (error) {
@@ -308,10 +351,9 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
       }
 
       console.log(
-        "Password reset email sent successfully via Resend HTTP API to:",
-        to
+        `Password reset email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
       );
-      return { accepted: [to], messageId: data.id, info: data };
+      return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (err) {
       console.error(
         "Failed to send password reset email via Resend",

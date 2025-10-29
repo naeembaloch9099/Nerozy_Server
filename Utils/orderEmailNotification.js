@@ -475,11 +475,32 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
   // Use Resend HTTP API if available
   if (useResend && resendClient) {
     try {
+      // In Resend testing mode, we can only send to the account owner's email
+      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
+      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+      
+      // In testing mode, send to test email but include actual recipient in HTML
+      const actualRecipient = customerEmail;
+      const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
+      
+      // Add notice to HTML if in testing mode
+      let finalHtml = htmlContent;
+      if (isResendTestingMode && emailRecipient !== actualRecipient) {
+        finalHtml = `
+          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
+            <p style="margin:0;color:#856404;font-size:14px;">
+              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
+            </p>
+          </div>
+          ${htmlContent}
+        `;
+      }
+
       const { data, error } = await resendClient.emails.send({
         from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
-        to: [customerEmail],
+        to: [emailRecipient],
         subject: `Order Confirmation #${order.orderNumber} - Thank you for your purchase!`,
-        html: htmlContent,
+        html: finalHtml,
       });
 
       if (error) {
@@ -490,10 +511,9 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
       }
 
       console.log(
-        "Order confirmation email sent successfully via Resend HTTP API to:",
-        customerEmail
+        `Order confirmation email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
       );
-      return { accepted: [customerEmail], messageId: data.id, info: data };
+      return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (error) {
       console.error("Failed to send order confirmation email:", error.message);
       throw new Error(
@@ -572,11 +592,32 @@ export async function sendOrderStatusUpdateEmail(
   // Use Resend HTTP API if available
   if (useResend && resendClient) {
     try {
+      // In Resend testing mode, we can only send to the account owner's email
+      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
+      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+      
+      // In testing mode, send to test email but include actual recipient in HTML
+      const actualRecipient = customerEmail;
+      const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
+      
+      // Add notice to HTML if in testing mode
+      let finalHtml = htmlContent;
+      if (isResendTestingMode && emailRecipient !== actualRecipient) {
+        finalHtml = `
+          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
+            <p style="margin:0;color:#856404;font-size:14px;">
+              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
+            </p>
+          </div>
+          ${htmlContent}
+        `;
+      }
+
       const { data, error } = await resendClient.emails.send({
         from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
-        to: [customerEmail],
+        to: [emailRecipient],
         subject: `${subjectTitle} #${order.orderNumber} - Status Update`,
-        html: htmlContent,
+        html: finalHtml,
       });
 
       if (error) {
@@ -587,9 +628,9 @@ export async function sendOrderStatusUpdateEmail(
       }
 
       console.log(
-        `Order status update email sent successfully via Resend HTTP API to: ${customerEmail} (${oldStatus} → ${newStatus})`
+        `Order status update email sent successfully via Resend HTTP API to: ${emailRecipient} (${oldStatus} → ${newStatus})${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
       );
-      return { accepted: [customerEmail], messageId: data.id, info: data };
+      return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (error) {
       console.error("Failed to send order status update email:", error.message);
       throw new Error(
