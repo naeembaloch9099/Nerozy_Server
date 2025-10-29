@@ -1,32 +1,16 @@
-import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Check if using Resend (HTTP API) or SMTP
-const useResend = !!process.env.RESEND_API_KEY;
-const resendApiKey = process.env.RESEND_API_KEY;
-const resendFromEmail =
-  process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
-
-// Initialize Resend client if API key is available
-let resendClient = null;
-if (useResend) {
-  resendClient = new Resend(resendApiKey);
-}
-
-// Only create SMTP transporter if NOT using Resend
-let transporter = null;
-if (!useResend) {
-  transporter = nodemailer.createTransport({
-    service: process.env.SMTP_SERVICE || "gmail",
-    auth: {
-      user: process.env.SMTP_EMAIL,
-      pass: process.env.SMTP_PASS,
-    },
-  });
-}
+// Use the same transporter setup as the existing mailer
+const transporter = nodemailer.createTransport({
+  service: process.env.SMTP_SERVICE || "gmail",
+  auth: {
+    user: process.env.SMTP_EMAIL,
+    pass: process.env.SMTP_PASS,
+  },
+});
 
 // Generate beautiful HTML email template for order confirmation
 function generateOrderEmailHTML(order, customerEmail) {
@@ -472,63 +456,6 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
 
   const htmlContent = generateOrderEmailHTML(order, customerEmail);
 
-  // Use Resend HTTP API if available
-  if (useResend && resendClient) {
-    try {
-      // In Resend testing mode, we can only send to the account owner's email
-      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
-      const bypassTestMode =
-        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
-        "true";
-      const isResendTestingMode =
-        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
-      const testEmail =
-        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-
-      // In testing mode, send to test email but include actual recipient in HTML
-      const actualRecipient = customerEmail;
-      const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
-
-      // Add notice to HTML if in testing mode
-      let finalHtml = htmlContent;
-      if (isResendTestingMode && emailRecipient !== actualRecipient) {
-        finalHtml = `
-          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
-            <p style="margin:0;color:#856404;font-size:14px;">
-              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
-            </p>
-          </div>
-          ${htmlContent}
-        `;
-      }
-
-      const { data, error } = await resendClient.emails.send({
-        from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
-        to: [emailRecipient],
-        subject: `Order Confirmation #${order.orderNumber} - Thank you for your purchase!`,
-        html: finalHtml,
-      });
-
-      if (error) {
-        console.error("Resend API error:", error);
-        throw new Error(
-          error.message || "Failed to send order confirmation email via Resend"
-        );
-      }
-
-      console.log(
-        `Order confirmation email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
-      );
-      return { accepted: [emailRecipient], messageId: data.id, info: data };
-    } catch (error) {
-      console.error("Failed to send order confirmation email:", error.message);
-      throw new Error(
-        `Failed to send order confirmation email: ${error.message}`
-      );
-    }
-  }
-
-  // Fallback to SMTP
   if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASS) {
     console.error(
       "SMTP credentials not configured for order confirmation emails"
@@ -595,63 +522,6 @@ export async function sendOrderStatusUpdateEmail(
 
   const subjectTitle = statusTitles[newStatus] || "Order Update";
 
-  // Use Resend HTTP API if available
-  if (useResend && resendClient) {
-    try {
-      // In Resend testing mode, we can only send to the account owner's email
-      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
-      const bypassTestMode =
-        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
-        "true";
-      const isResendTestingMode =
-        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
-      const testEmail =
-        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-
-      // In testing mode, send to test email but include actual recipient in HTML
-      const actualRecipient = customerEmail;
-      const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
-
-      // Add notice to HTML if in testing mode
-      let finalHtml = htmlContent;
-      if (isResendTestingMode && emailRecipient !== actualRecipient) {
-        finalHtml = `
-          <div style="background:#fff3cd;border-left:4px solid #ffc107;padding:15px;margin-bottom:20px;border-radius:6px;">
-            <p style="margin:0;color:#856404;font-size:14px;">
-              <strong>⚠️ Testing Mode:</strong> This email was intended for <strong>${actualRecipient}</strong> but sent to your test email because Resend requires domain verification to send to other recipients.
-            </p>
-          </div>
-          ${htmlContent}
-        `;
-      }
-
-      const { data, error } = await resendClient.emails.send({
-        from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
-        to: [emailRecipient],
-        subject: `${subjectTitle} #${order.orderNumber} - Status Update`,
-        html: finalHtml,
-      });
-
-      if (error) {
-        console.error("Resend API error:", error);
-        throw new Error(
-          error.message || "Failed to send order status update email via Resend"
-        );
-      }
-
-      console.log(
-        `Order status update email sent successfully via Resend HTTP API to: ${emailRecipient} (${oldStatus} → ${newStatus})${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
-      );
-      return { accepted: [emailRecipient], messageId: data.id, info: data };
-    } catch (error) {
-      console.error("Failed to send order status update email:", error.message);
-      throw new Error(
-        `Failed to send order status update email: ${error.message}`
-      );
-    }
-  }
-
-  // Fallback to SMTP
   if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASS) {
     console.error(
       "SMTP credentials not configured for order status update emails"
