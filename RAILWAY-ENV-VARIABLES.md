@@ -5,6 +5,7 @@
 Go to your Railway dashboard → Select your project → Variables tab → Add these:
 
 ### Database & Server
+
 ```
 MONGODB_URI=your_mongodb_connection_string
 PORT=4242
@@ -13,6 +14,7 @@ JWT_EXPIRES_IN=7d
 ```
 
 ### Email Configuration (CRITICAL FOR SENDING EMAILS)
+
 ```
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
@@ -33,6 +35,7 @@ FRONTEND_URL=https://your-frontend-url.vercel.app
 **Note**: Replace with your actual Vercel deployment URL
 
 ### Admin Configuration
+
 ```
 ADMIN_EMAIL=your_admin@email.com
 ADMIN_PASS=your_secure_admin_password
