@@ -113,7 +113,8 @@ console.log("Email config:", {
 });
 
 // Only verify transporter if SEND_EMAILS is enabled. This avoids noisy verification errors in dev when sending is disabled.
-if (sendEmailsEnv) {
+// Skip verification for Resend as it doesn't support SMTP verification
+if (sendEmailsEnv && !useResend) {
   transporter
     .verify()
     .then(() => {
@@ -135,6 +136,10 @@ if (sendEmailsEnv) {
         "To disable sending emails during development, set SEND_EMAILS=false in server/.env and restart the server."
       );
     });
+} else if (useResend) {
+  // Resend doesn't support verification, mark as verified directly
+  transporterVerified = true;
+  console.log("Resend SMTP ready (verification skipped)");
 } else {
   console.log("SEND_EMAILS is false — skipping SMTP verification (dev mode)");
 }
@@ -181,7 +186,11 @@ export async function sendOtpEmail(
   }
 
   try {
-    const fromEmail = useResend ? resendFromEmail : (useSendGrid ? sendGridFromEmail : smtpUser);
+    const fromEmail = useResend
+      ? resendFromEmail
+      : useSendGrid
+      ? sendGridFromEmail
+      : smtpUser;
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
@@ -272,7 +281,11 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   }
 
   try {
-    const fromEmail = useResend ? resendFromEmail : (useSendGrid ? sendGridFromEmail : smtpUser);
+    const fromEmail = useResend
+      ? resendFromEmail
+      : useSendGrid
+      ? sendGridFromEmail
+      : smtpUser;
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
