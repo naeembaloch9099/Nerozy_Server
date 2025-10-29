@@ -1,5 +1,4 @@
 import nodemailer from "nodemailer";
-import { Resend } from "resend";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -23,13 +22,6 @@ const resendApiKey = process.env.RESEND_API_KEY;
 const resendFromEmail =
   process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
 
-// Initialize Resend client if API key is present
-let resendClient = null;
-if (useResend) {
-  resendClient = new Resend(resendApiKey);
-  console.log("Using Resend HTTP API for email delivery");
-}
-
 const useSendGrid = !useResend && !!process.env.SENDGRID_API_KEY;
 const sendGridApiKey = process.env.SENDGRID_API_KEY;
 const sendGridFromEmail =
@@ -37,7 +29,7 @@ const sendGridFromEmail =
   process.env.FROM_NAME ||
   "noreply@baloch-tradition.com";
 
-// Build transport options for SendGrid or SMTP (Resend uses HTTP API)
+// Build transport options supporting both explicit host/port and named services (e.g. 'gmail')
 const smtpService = process.env.SMTP_SERVICE || "";
 const smtpHost = process.env.SMTP_HOST || "smtp.gmail.com";
 const smtpPort = Number(process.env.SMTP_PORT || 587);
@@ -46,10 +38,20 @@ const smtpUser = process.env.SMTP_EMAIL;
 const smtpPass = process.env.SMTP_PASS;
 
 let transportOptions = {};
-let transporter = null;
 
-// Only create nodemailer transporter for SendGrid or SMTP
-if (useSendGrid) {
+if (useResend) {
+  // Resend configuration (best for Railway)
+  transportOptions = {
+    host: "smtp.resend.com",
+    port: 465,
+    secure: true,
+    auth: {
+      user: "resend",
+      pass: resendApiKey,
+    },
+  };
+  console.log("Using Resend for email delivery");
+} else if (useSendGrid) {
   // SendGrid configuration
   transportOptions = {
     host: "smtp.sendgrid.net",
@@ -61,50 +63,58 @@ if (useSendGrid) {
     },
   };
   console.log("Using SendGrid for email delivery");
-  transporter = nodemailer.createTransport(transportOptions);
-} else if (!useResend) {
-  // SMTP configuration (only if not using Resend)
-  if (smtpService) {
-    transportOptions.service = smtpService;
-    transportOptions.auth = { user: smtpUser, pass: smtpPass };
-  } else {
-    transportOptions = {
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
-      auth: { user: smtpUser, pass: smtpPass },
-    };
-  }
-
-  // allow skipping TLS verification in some dev environments (not recommended for production)
-  if (
-    String(process.env.SMTP_SKIP_TLS_VERIFY || "false").toLowerCase() === "true"
-  ) {
-    transportOptions.tls = { rejectUnauthorized: false };
-  }
-
-  transporter = nodemailer.createTransport(transportOptions);
+} else if (smtpService) {
+  transportOptions.service = smtpService;
+  transportOptions.auth = { user: smtpUser, pass: smtpPass };
+} else {
+  transportOptions = {
+    host: smtpHost,
+    port: smtpPort,
+    secure: smtpSecure,
+    auth: { user: smtpUser, pass: smtpPass },
+  };
 }
+
+// allow skipping TLS verification in some dev environments (not recommended for production)
+if (
+  String(process.env.SMTP_SKIP_TLS_VERIFY || "false").toLowerCase() === "true"
+) {
+  transportOptions.tls = { rejectUnauthorized: false };
+}
+
+const transporter = nodemailer.createTransport(transportOptions);
 
 // Track verification state and respect SEND_EMAILS env var
 let transporterVerified = false;
 const sendEmailsEnv =
   String(process.env.SEND_EMAILS || "false").toLowerCase() === "true";
 
-// Log email configuration
+// Log SMTP env state for debugging (do not print secrets)
 console.log("Email config:", {
   useResend,
   useSendGrid,
   service: useResend
-    ? "Resend HTTP API"
+    ? "Resend"
     : useSendGrid
     ? "SendGrid"
     : smtpService || "SMTP",
+  host: useResend
+    ? "smtp.resend.com"
+    : useSendGrid
+    ? "smtp.sendgrid.net"
+    : smtpHost,
+  port: useResend ? 465 : useSendGrid ? 587 : smtpPort,
+  hasCredentials: useResend
+    ? !!resendApiKey
+    : useSendGrid
+    ? !!sendGridApiKey
+    : !!smtpPass,
   sendEmails: sendEmailsEnv,
 });
 
-// Verify transporter if using SendGrid or SMTP (Resend uses HTTP API)
-if (sendEmailsEnv && transporter) {
+// Only verify transporter if SEND_EMAILS is enabled. This avoids noisy verification errors in dev when sending is disabled.
+// Skip verification for Resend as it doesn't support SMTP verification
+if (sendEmailsEnv && !useResend) {
   transporter
     .verify()
     .then(() => {
@@ -126,10 +136,10 @@ if (sendEmailsEnv && transporter) {
         "To disable sending emails during development, set SEND_EMAILS=false in server/.env and restart the server."
       );
     });
-} else if (useResend && sendEmailsEnv) {
-  // Resend uses HTTP API, no transporter needed
+} else if (useResend) {
+  // Resend doesn't support verification, mark as verified directly
   transporterVerified = true;
-  console.log("Resend HTTP API ready");
+  console.log("Resend SMTP ready (verification skipped)");
 } else {
   console.log("SEND_EMAILS is false — skipping SMTP verification (dev mode)");
 }
@@ -170,28 +180,17 @@ export async function sendOtpEmail(
 
   if (!transporterVerified) {
     const msg =
-      "Email service not ready. Check configuration or set SEND_EMAILS=false to skip sending in development.";
+      "SMTP transporter not verified. Check SMTP credentials (use a Gmail App Password if using Gmail) or set SEND_EMAILS=false to skip sending in development.";
     console.error(msg);
     throw new Error(msg);
   }
 
   try {
-    // Use Resend HTTP API if configured
-    if (useResend && resendClient) {
-      const result = await resendClient.emails.send({
-        from: `${
-          process.env.FROM_NAME || "Baloch Tradition"
-        } <${resendFromEmail}>`,
-        to: [to],
-        subject: subject,
-        html,
-      });
-      console.log("Email sent via Resend HTTP API:", result);
-      return { accepted: [to], messageId: result.id };
-    }
-
-    // Use nodemailer for SendGrid or SMTP
-    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
+    const fromEmail = useResend
+      ? resendFromEmail
+      : useSendGrid
+      ? sendGridFromEmail
+      : smtpUser;
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
@@ -276,28 +275,17 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
 
   if (!transporterVerified) {
     const msg =
-      "Email service not ready. Check configuration or set SEND_EMAILS=false to skip sending in development.";
+      "SMTP transporter not verified. Check SMTP credentials (use a Gmail App Password if using Gmail) or set SEND_EMAILS=false to skip sending in development.";
     console.error(msg);
     throw new Error(msg);
   }
 
   try {
-    // Use Resend HTTP API if configured
-    if (useResend && resendClient) {
-      const result = await resendClient.emails.send({
-        from: `${
-          process.env.FROM_NAME || "Baloch Tradition"
-        } <${resendFromEmail}>`,
-        to: [to],
-        subject: "🔐 Reset Your Password - Baloch Tradition",
-        html,
-      });
-      console.log("Password reset email sent via Resend HTTP API to:", to);
-      return { accepted: [to], messageId: result.id };
-    }
-
-    // Use nodemailer for SendGrid or SMTP
-    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
+    const fromEmail = useResend
+      ? resendFromEmail
+      : useSendGrid
+      ? sendGridFromEmail
+      : smtpUser;
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
@@ -315,6 +303,4 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   }
 }
 
-// Export transporter (or null if using Resend HTTP API)
-// Note: When using Resend, transporter is null - use the exported functions instead
 export default transporter;
