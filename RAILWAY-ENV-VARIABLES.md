@@ -75,7 +75,7 @@ STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key_here
 ### Test Password Reset Email:
 
 ```bash
-curl -X POST https://nerozyserver-production.up.railway.app/api/auth/forgot-password \
+curl -X POST https://nerozyserver-production-4128.up.railway.app/api/auth/forgot-password \
   -H "Content-Type: application/json" \
   -d '{"email":"balochfaheem462@gmail.com"}'
 ```
@@ -83,7 +83,7 @@ curl -X POST https://nerozyserver-production.up.railway.app/api/auth/forgot-pass
 ### Test Signup Email:
 
 ```bash
-curl -X POST https://nerozyserver-production.up.railway.app/api/auth/signup \
+curl -X POST https://nerozyserver-production-4128.up.railway.app/api/auth/signup \
   -H "Content-Type: application/json" \
   -d '{"name":"Test User","email":"test@example.com","password":"Test123"}'
 ```
