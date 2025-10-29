@@ -1,16 +1,32 @@
+import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Use the same transporter setup as the existing mailer
-const transporter = nodemailer.createTransport({
-  service: process.env.SMTP_SERVICE || "gmail",
-  auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASS,
-  },
-});
+// Check if using Resend (HTTP API) or SMTP
+const useResend = !!process.env.RESEND_API_KEY;
+const resendApiKey = process.env.RESEND_API_KEY;
+const resendFromEmail =
+  process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
+// Initialize Resend client if API key is available
+let resendClient = null;
+if (useResend) {
+  resendClient = new Resend(resendApiKey);
+}
+
+// Only create SMTP transporter if NOT using Resend
+let transporter = null;
+if (!useResend) {
+  transporter = nodemailer.createTransport({
+    service: process.env.SMTP_SERVICE || "gmail",
+    auth: {
+      user: process.env.SMTP_EMAIL,
+      pass: process.env.SMTP_PASS,
+    },
+  });
+}
 
 // Generate beautiful HTML email template for order confirmation
 function generateOrderEmailHTML(order, customerEmail) {
@@ -109,8 +125,8 @@ function generateOrderEmailHTML(order, customerEmail) {
               }</div>
               <div>${shippingAddress.address || ""}</div>
               <div>${shippingAddress.city || ""} ${
-                  shippingAddress.postal || ""
-                }</div>
+                shippingAddress.postal || ""
+              }</div>
               <div>${shippingAddress.country || ""}</div>
               ${
                 shippingAddress.phone
@@ -287,8 +303,10 @@ function generateStatusUpdateEmailHTML(
                       <div style="width: 40px; height: 40px; border-radius: 50%; background: ${
                         isCompleted ? statusInfo.gradient : "#e5e7eb"
                       }; display: flex; align-items: center; justify-content: center; box-shadow: ${
-                      isCurrent ? "0 4px 12px rgba(102, 126, 234, 0.4)" : "none"
-                    }; flex-shrink: 0;">
+                        isCurrent
+                          ? "0 4px 12px rgba(102, 126, 234, 0.4)"
+                          : "none"
+                      }; flex-shrink: 0;">
                         ${
                           isCompleted
                             ? '<div style="color: white; font-size: 20px; font-weight: bold;">✓</div>'
@@ -301,10 +319,10 @@ function generateStatusUpdateEmailHTML(
                         <div style="color: ${
                           isCompleted ? "#333" : "#9ca3af"
                         }; font-weight: ${
-                      isCurrent ? "700" : "500"
-                    }; font-size: ${isCurrent ? "16px" : "14px"};">${
-                      statusLabels[status]
-                    }</div>
+                          isCurrent ? "700" : "500"
+                        }; font-size: ${isCurrent ? "16px" : "14px"};">${
+                          statusLabels[status]
+                        }</div>
                         ${
                           isCurrent
                             ? `<div style="color: ${statusInfo.color}; font-size: 12px; margin-top: 2px;">Current Status</div>`
@@ -390,8 +408,8 @@ function generateStatusUpdateEmailHTML(
                 }</div>
                 <div>${order.shippingAddress.address || "N/A"}</div>
                 <div>${order.shippingAddress.city || "N/A"}, ${
-                    order.shippingAddress.postal || "N/A"
-                  }</div>
+                  order.shippingAddress.postal || "N/A"
+                }</div>
                 <div>${order.shippingAddress.country || "N/A"}</div>
                 ${
                   order.shippingAddress.phone
@@ -452,6 +470,39 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
     return { accepted: [customerEmail], info: "dev-sent" };
   }
 
+  const htmlContent = generateOrderEmailHTML(order, customerEmail);
+
+  // Use Resend HTTP API if available
+  if (useResend && resendClient) {
+    try {
+      const { data, error } = await resendClient.emails.send({
+        from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
+        to: [customerEmail],
+        subject: `Order Confirmation #${order.orderNumber} - Thank you for your purchase!`,
+        html: htmlContent,
+      });
+
+      if (error) {
+        console.error("Resend API error:", error);
+        throw new Error(
+          error.message || "Failed to send order confirmation email via Resend"
+        );
+      }
+
+      console.log(
+        "Order confirmation email sent successfully via Resend HTTP API to:",
+        customerEmail
+      );
+      return { accepted: [customerEmail], messageId: data.id, info: data };
+    } catch (error) {
+      console.error("Failed to send order confirmation email:", error.message);
+      throw new Error(
+        `Failed to send order confirmation email: ${error.message}`
+      );
+    }
+  }
+
+  // Fallback to SMTP
   if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASS) {
     console.error(
       "SMTP credentials not configured for order confirmation emails"
@@ -460,8 +511,6 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
   }
 
   try {
-    const htmlContent = generateOrderEmailHTML(order, customerEmail);
-
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Nerozy"} <${process.env.SMTP_EMAIL}>`,
       to: customerEmail,
@@ -503,6 +552,53 @@ export async function sendOrderStatusUpdateEmail(
     return { accepted: [customerEmail], info: "dev-sent" };
   }
 
+  const htmlContent = generateStatusUpdateEmailHTML(
+    order,
+    customerEmail,
+    oldStatus,
+    newStatus
+  );
+
+  const statusTitles = {
+    pending: "Order Received",
+    confirmed: "Order Confirmed",
+    shipped: "Order Shipped",
+    delivered: "Order Delivered",
+    canceled: "Order Cancelled",
+  };
+
+  const subjectTitle = statusTitles[newStatus] || "Order Update";
+
+  // Use Resend HTTP API if available
+  if (useResend && resendClient) {
+    try {
+      const { data, error } = await resendClient.emails.send({
+        from: `${process.env.FROM_NAME || "Nerozy"} <${resendFromEmail}>`,
+        to: [customerEmail],
+        subject: `${subjectTitle} #${order.orderNumber} - Status Update`,
+        html: htmlContent,
+      });
+
+      if (error) {
+        console.error("Resend API error:", error);
+        throw new Error(
+          error.message || "Failed to send order status update email via Resend"
+        );
+      }
+
+      console.log(
+        `Order status update email sent successfully via Resend HTTP API to: ${customerEmail} (${oldStatus} → ${newStatus})`
+      );
+      return { accepted: [customerEmail], messageId: data.id, info: data };
+    } catch (error) {
+      console.error("Failed to send order status update email:", error.message);
+      throw new Error(
+        `Failed to send order status update email: ${error.message}`
+      );
+    }
+  }
+
+  // Fallback to SMTP
   if (!process.env.SMTP_EMAIL || !process.env.SMTP_PASS) {
     console.error(
       "SMTP credentials not configured for order status update emails"
@@ -511,23 +607,6 @@ export async function sendOrderStatusUpdateEmail(
   }
 
   try {
-    const htmlContent = generateStatusUpdateEmailHTML(
-      order,
-      customerEmail,
-      oldStatus,
-      newStatus
-    );
-
-    const statusTitles = {
-      pending: "Order Received",
-      confirmed: "Order Confirmed",
-      shipped: "Order Shipped",
-      delivered: "Order Delivered",
-      canceled: "Order Cancelled",
-    };
-
-    const subjectTitle = statusTitles[newStatus] || "Order Update";
-
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Nerozy"} <${process.env.SMTP_EMAIL}>`,
       to: customerEmail,
