@@ -8,13 +8,21 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const localEnvPath = path.join(__dirname, "..", ".env");
-if (!process.env.SMTP_EMAIL) {
+if (!process.env.SMTP_EMAIL && !process.env.SENDGRID_API_KEY) {
   dotenv.config({ path: localEnvPath });
 }
 
 // Debugging info to help locate which .env is loaded
 console.log("mailer startup cwd:", process.cwd());
 console.log("mailer file dirname:", __dirname);
+
+// Check if using SendGrid or SMTP
+const useSendGrid = !!process.env.SENDGRID_API_KEY;
+const sendGridApiKey = process.env.SENDGRID_API_KEY;
+const sendGridFromEmail =
+  process.env.SENDGRID_FROM_EMAIL ||
+  process.env.FROM_NAME ||
+  "noreply@baloch-tradition.com";
 
 // Build transport options supporting both explicit host/port and named services (e.g. 'gmail')
 const smtpService = process.env.SMTP_SERVICE || "";
@@ -25,7 +33,20 @@ const smtpUser = process.env.SMTP_EMAIL;
 const smtpPass = process.env.SMTP_PASS;
 
 let transportOptions = {};
-if (smtpService) {
+
+if (useSendGrid) {
+  // SendGrid configuration
+  transportOptions = {
+    host: "smtp.sendgrid.net",
+    port: 587,
+    secure: false,
+    auth: {
+      user: "apikey",
+      pass: sendGridApiKey,
+    },
+  };
+  console.log("Using SendGrid for email delivery");
+} else if (smtpService) {
   transportOptions.service = smtpService;
   transportOptions.auth = { user: smtpUser, pass: smtpPass };
 } else {
@@ -52,13 +73,13 @@ const sendEmailsEnv =
   String(process.env.SEND_EMAILS || "false").toLowerCase() === "true";
 
 // Log SMTP env state for debugging (do not print secrets)
-console.log("SMTP config:", {
-  smtpService: smtpService || null,
-  smtpHost,
-  smtpPort,
-  smtpSecure,
-  smtpUser: smtpUser ? smtpUser : "<missing>",
-  hasPassword: !!smtpPass,
+console.log("Email config:", {
+  useSendGrid,
+  smtpService: useSendGrid ? "SendGrid" : smtpService || null,
+  smtpHost: useSendGrid ? "smtp.sendgrid.net" : smtpHost,
+  smtpPort: useSendGrid ? 587 : smtpPort,
+  smtpUser: useSendGrid ? "apikey" : smtpUser ? smtpUser : "<missing>",
+  hasCredentials: useSendGrid ? !!sendGridApiKey : !!smtpPass,
   sendEmails: sendEmailsEnv,
 });
 
@@ -131,8 +152,9 @@ export async function sendOtpEmail(
   }
 
   try {
+    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
     const info = await transporter.sendMail({
-      from: `${process.env.FROM_NAME || "Nerozy"} <${smtpUser}>`,
+      from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
       subject: subject,
       html,
@@ -221,8 +243,9 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   }
 
   try {
+    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
     const info = await transporter.sendMail({
-      from: `${process.env.FROM_NAME || "Baloch Tradition"} <${smtpUser}>`,
+      from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
       subject: "🔐 Reset Your Password - Baloch Tradition",
       html,
