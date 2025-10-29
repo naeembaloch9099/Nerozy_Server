@@ -235,7 +235,9 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
       "Failed to send password reset email",
       err && err.message ? err.message : err
     );
-    throw new Error((err && err.message) || "Failed to send password reset email");
+    throw new Error(
+      (err && err.message) || "Failed to send password reset email"
+    );
   }
 }
 
