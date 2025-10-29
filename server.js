@@ -11,12 +11,14 @@ dotenv.config();
 const app = express();
 
 // Configure CORS to allow requests from any origin (for cross-device access)
-app.use(cors({
-  origin: '*', // Allow all origins (for development and cross-device access)
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+app.use(
+  cors({
+    origin: "*", // Allow all origins (for development and cross-device access)
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 // Stripe webhook needs raw body, so we handle it before JSON parsing
 app.use("/api/payments/webhook", express.raw({ type: "application/json" }));
@@ -66,12 +68,14 @@ import productRoutes from "./Routes/products.js";
 import orderRoutes from "./Routes/orders.js";
 import debugRoutes from "./Routes/debug.js";
 import paymentRoutes from "./Routes/payments.js";
+import inventoryTestRoutes from "./Routes/inventory-test.js";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/payments", paymentRoutes);
+app.use("/api/inventory-test", inventoryTestRoutes);
 
 // Legacy route for backward compatibility
 app.use("/create-checkout-session", paymentRoutes);

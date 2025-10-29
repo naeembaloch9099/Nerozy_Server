@@ -388,7 +388,10 @@ router.put("/:id/status", requireAuth, requireAdmin, async (req, res) => {
           `✅ Stock restored for ${restoreResult.restored.length} products`
         );
       } else {
-        console.warn("⚠️ Some products failed to restore:", restoreResult.failed);
+        console.warn(
+          "⚠️ Some products failed to restore:",
+          restoreResult.failed
+        );
       }
     }
 
