@@ -178,13 +178,19 @@ export async function sendOtpEmail(
     try {
       // In Resend testing mode, we can only send to the account owner's email
       // Check if we're in testing mode (using onboarding@resend.dev)
-      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
-      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-      
+      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
+      const bypassTestMode =
+        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
+        "true";
+      const isResendTestingMode =
+        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
+      const testEmail =
+        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+
       // In testing mode, send to test email but include actual recipient in HTML
       const actualRecipient = to;
       const emailRecipient = isResendTestingMode ? testEmail : to;
-      
+
       // Add notice to HTML if in testing mode
       let finalHtml = html;
       if (isResendTestingMode && emailRecipient !== actualRecipient) {
@@ -210,7 +216,9 @@ export async function sendOtpEmail(
         throw new Error(error.message || "Failed to send email via Resend");
       }
 
-      console.log(`Email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`);
+      console.log(
+        `Email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
+      );
       return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (err) {
       console.error(
@@ -316,13 +324,19 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   if (useResend && resendClient) {
     try {
       // In Resend testing mode, we can only send to the account owner's email
-      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
-      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-      
+      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
+      const bypassTestMode =
+        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
+        "true";
+      const isResendTestingMode =
+        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
+      const testEmail =
+        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+
       // In testing mode, send to test email but include actual recipient in HTML
       const actualRecipient = to;
       const emailRecipient = isResendTestingMode ? testEmail : to;
-      
+
       // Add notice to HTML if in testing mode
       let finalHtml = html;
       if (isResendTestingMode && emailRecipient !== actualRecipient) {
@@ -351,7 +365,7 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
       }
 
       console.log(
-        `Password reset email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
+        `Password reset email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
       );
       return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (err) {

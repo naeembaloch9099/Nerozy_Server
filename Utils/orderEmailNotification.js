@@ -476,13 +476,19 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
   if (useResend && resendClient) {
     try {
       // In Resend testing mode, we can only send to the account owner's email
-      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
-      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-      
+      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
+      const bypassTestMode =
+        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
+        "true";
+      const isResendTestingMode =
+        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
+      const testEmail =
+        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+
       // In testing mode, send to test email but include actual recipient in HTML
       const actualRecipient = customerEmail;
       const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
-      
+
       // Add notice to HTML if in testing mode
       let finalHtml = htmlContent;
       if (isResendTestingMode && emailRecipient !== actualRecipient) {
@@ -511,7 +517,7 @@ export async function sendOrderConfirmationEmail(order, customerEmail) {
       }
 
       console.log(
-        `Order confirmation email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
+        `Order confirmation email sent successfully via Resend HTTP API to: ${emailRecipient}${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
       );
       return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (error) {
@@ -593,13 +599,19 @@ export async function sendOrderStatusUpdateEmail(
   if (useResend && resendClient) {
     try {
       // In Resend testing mode, we can only send to the account owner's email
-      const isResendTestingMode = resendFromEmail === "onboarding@resend.dev";
-      const testEmail = process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
-      
+      // Set RESEND_BYPASS_TEST_MODE=true in Railway to send to actual recipients (requires verified domain)
+      const bypassTestMode =
+        String(process.env.RESEND_BYPASS_TEST_MODE || "false").toLowerCase() ===
+        "true";
+      const isResendTestingMode =
+        !bypassTestMode && resendFromEmail === "onboarding@resend.dev";
+      const testEmail =
+        process.env.RESEND_TEST_EMAIL || "studentcui2@gmail.com";
+
       // In testing mode, send to test email but include actual recipient in HTML
       const actualRecipient = customerEmail;
       const emailRecipient = isResendTestingMode ? testEmail : customerEmail;
-      
+
       // Add notice to HTML if in testing mode
       let finalHtml = htmlContent;
       if (isResendTestingMode && emailRecipient !== actualRecipient) {
@@ -628,7 +640,7 @@ export async function sendOrderStatusUpdateEmail(
       }
 
       console.log(
-        `Order status update email sent successfully via Resend HTTP API to: ${emailRecipient} (${oldStatus} → ${newStatus})${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ''}`
+        `Order status update email sent successfully via Resend HTTP API to: ${emailRecipient} (${oldStatus} → ${newStatus})${isResendTestingMode && emailRecipient !== actualRecipient ? ` (intended for ${actualRecipient})` : ""}`
       );
       return { accepted: [emailRecipient], messageId: data.id, info: data };
     } catch (error) {
