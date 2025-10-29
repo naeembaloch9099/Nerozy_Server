@@ -16,8 +16,13 @@ if (!process.env.SMTP_EMAIL && !process.env.SENDGRID_API_KEY) {
 console.log("mailer startup cwd:", process.cwd());
 console.log("mailer file dirname:", __dirname);
 
-// Check if using SendGrid or SMTP
-const useSendGrid = !!process.env.SENDGRID_API_KEY;
+// Check if using Resend, SendGrid, or SMTP (in priority order)
+const useResend = !!process.env.RESEND_API_KEY;
+const resendApiKey = process.env.RESEND_API_KEY;
+const resendFromEmail =
+  process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev";
+
+const useSendGrid = !useResend && !!process.env.SENDGRID_API_KEY;
 const sendGridApiKey = process.env.SENDGRID_API_KEY;
 const sendGridFromEmail =
   process.env.SENDGRID_FROM_EMAIL ||
@@ -34,7 +39,19 @@ const smtpPass = process.env.SMTP_PASS;
 
 let transportOptions = {};
 
-if (useSendGrid) {
+if (useResend) {
+  // Resend configuration (best for Railway)
+  transportOptions = {
+    host: "smtp.resend.com",
+    port: 465,
+    secure: true,
+    auth: {
+      user: "resend",
+      pass: resendApiKey,
+    },
+  };
+  console.log("Using Resend for email delivery");
+} else if (useSendGrid) {
   // SendGrid configuration
   transportOptions = {
     host: "smtp.sendgrid.net",
@@ -74,12 +91,24 @@ const sendEmailsEnv =
 
 // Log SMTP env state for debugging (do not print secrets)
 console.log("Email config:", {
+  useResend,
   useSendGrid,
-  smtpService: useSendGrid ? "SendGrid" : smtpService || null,
-  smtpHost: useSendGrid ? "smtp.sendgrid.net" : smtpHost,
-  smtpPort: useSendGrid ? 587 : smtpPort,
-  smtpUser: useSendGrid ? "apikey" : smtpUser ? smtpUser : "<missing>",
-  hasCredentials: useSendGrid ? !!sendGridApiKey : !!smtpPass,
+  service: useResend
+    ? "Resend"
+    : useSendGrid
+    ? "SendGrid"
+    : smtpService || "SMTP",
+  host: useResend
+    ? "smtp.resend.com"
+    : useSendGrid
+    ? "smtp.sendgrid.net"
+    : smtpHost,
+  port: useResend ? 465 : useSendGrid ? 587 : smtpPort,
+  hasCredentials: useResend
+    ? !!resendApiKey
+    : useSendGrid
+    ? !!sendGridApiKey
+    : !!smtpPass,
   sendEmails: sendEmailsEnv,
 });
 
@@ -152,7 +181,7 @@ export async function sendOtpEmail(
   }
 
   try {
-    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
+    const fromEmail = useResend ? resendFromEmail : (useSendGrid ? sendGridFromEmail : smtpUser);
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
@@ -243,7 +272,7 @@ export async function sendPasswordResetEmail(to, name, resetToken, resetUrl) {
   }
 
   try {
-    const fromEmail = useSendGrid ? sendGridFromEmail : smtpUser;
+    const fromEmail = useResend ? resendFromEmail : (useSendGrid ? sendGridFromEmail : smtpUser);
     const info = await transporter.sendMail({
       from: `${process.env.FROM_NAME || "Baloch Tradition"} <${fromEmail}>`,
       to,
