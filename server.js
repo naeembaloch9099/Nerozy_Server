@@ -10,10 +10,30 @@ dotenv.config();
 
 const app = express();
 
-// Configure CORS to allow requests from any origin (for cross-device access)
+// Configure CORS. Allow origins from environment variable or sensible defaults.
+// If you need to allow multiple origins, set CORS_ORIGINS in the environment
+// as a comma separated list, e.g.:
+// CORS_ORIGINS="http://localhost:5173,https://nerozy.vercel.app"
+const corsOriginsEnv = process.env.CORS_ORIGINS || "";
+const defaultAllowed = ["http://localhost:5173", "https://nerozy.vercel.app"];
+const allowedOrigins = corsOriginsEnv
+  ? corsOriginsEnv
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)
+  : defaultAllowed;
+
 app.use(
   cors({
-    origin: "*", // Allow all origins (for development and cross-device access)
+    origin: function (origin, callback) {
+      // Allow non-browser requests like curl/postman (no origin)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.indexOf(origin) !== -1) {
+        return callback(null, true);
+      }
+      console.warn("Blocked CORS request from origin:", origin);
+      return callback(new Error("Not allowed by CORS"));
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
