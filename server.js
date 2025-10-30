@@ -89,6 +89,7 @@ import orderRoutes from "./Routes/orders.js";
 import debugRoutes from "./Routes/debug.js";
 import paymentRoutes from "./Routes/payments.js";
 import inventoryTestRoutes from "./Routes/inventory-test.js";
+import categoryRoutes from "./Routes/categories.js";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/products", productRoutes);
@@ -96,6 +97,9 @@ app.use("/api/orders", orderRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/inventory-test", inventoryTestRoutes);
+
+// Categories
+app.use("/api/categories", categoryRoutes);
 
 // Legacy route for backward compatibility
 app.use("/create-checkout-session", paymentRoutes);
