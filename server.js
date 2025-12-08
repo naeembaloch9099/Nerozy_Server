@@ -15,7 +15,14 @@ const app = express();
 // as a comma separated list, e.g.:
 // CORS_ORIGINS="http://localhost:5173,https://nerozy.vercel.app"
 const corsOriginsEnv = process.env.CORS_ORIGINS || "";
-const defaultAllowed = ["http://localhost:5173", "https://nerozy.vercel.app"];
+const defaultAllowed = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:5174",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
+  "https://nerozy.vercel.app",
+];
 const allowedOrigins = corsOriginsEnv
   ? corsOriginsEnv
       .split(",")
